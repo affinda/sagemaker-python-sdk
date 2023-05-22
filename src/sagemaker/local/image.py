@@ -869,7 +869,9 @@ class _SageMakerContainer(object):
         if self.instance_type == "local_gpu":
             host_config["deploy"] = {
                 "resources": {
-                    "reservations": {"devices": [{"count": "all", "capabilities": ["gpu"]}]}
+                    "reservations": {
+                        "devices": [{"driver": "nvidia", "count": "all", "capabilities": ["gpu"]}]
+                    }
                 }
             }
 
