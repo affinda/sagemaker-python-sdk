@@ -762,6 +762,8 @@ class _SageMakerContainer(object):
                 "services": services,
                 "networks": {"sagemaker-local": {"name": "sagemaker-local"}},
             }
+        if subnet := additional_env_vars.get("SM_SUBNET"):
+            content["networks"]["sagemaker-local"]["ipam"] = {"config": [{"subnet": subnet}]}
 
         docker_compose_path = os.path.join(self.container_root, DOCKER_COMPOSE_FILENAME)
 
