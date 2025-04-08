@@ -15,9 +15,13 @@ from __future__ import absolute_import
 import pytest
 import numpy as np
 from sagemaker.jumpstart.types import (
+    JumpStartConfigComponent,
+    JumpStartConfigRanking,
     JumpStartHyperparameter,
     JumpStartInstanceTypeVariants,
     JumpStartEnvironmentVariable,
+    JumpStartMetadataConfig,
+    JumpStartMetadataConfigs,
     JumpStartPredictorSpecs,
     JumpStartSerializablePayload,
 )
@@ -32,9 +36,8 @@ gemma_model_spec = SPECIAL_MODEL_SPECS_DICT["gemma-model-2b-v1_1_0"]
 
 def test_hub_content_document_from_json_obj():
     region = "us-west-2"
-    gemma_model_document = HubModelDocument(
-        json_obj=HUB_MODEL_DOCUMENT_DICTS["huggingface-llm-gemma-2b-instruct"], region=region
-    )
+    json_obj = HUB_MODEL_DOCUMENT_DICTS["huggingface-llm-gemma-2b-instruct"]
+    gemma_model_document = HubModelDocument(json_obj=json_obj, region=region)
     assert gemma_model_document.url == "https://huggingface.co/google/gemma-2b-it"
     assert gemma_model_document.min_sdk_version == "2.189.0"
     assert gemma_model_document.training_supported is True
@@ -920,15 +923,13 @@ def test_hub_content_document_from_json_obj():
                 "g4dn": {
                     "properties": {
                         "image_uri": "$gpu_ecr_uri_1",
-                        "gated_model_key_env_var_value": "huggingface-training/g4dn/v1.0.0/train-"
-                        "huggingface-llm-gemma-2b-instruct.tar.gz",
+                        "training_artifact_uri": "s3://jumpstart-cache-prod-us-west-2/huggingface-training/g4dn/v1.0.0/",  # noqa: E501
                     },
                 },
                 "g5": {
                     "properties": {
                         "image_uri": "$gpu_ecr_uri_1",
-                        "gated_model_key_env_var_value": "huggingface-training/g5/v1.0.0/train-"
-                        "huggingface-llm-gemma-2b-instruct.tar.gz",
+                        "training_artifact_uri": "s3://jumpstart-cache-prod-us-west-2/huggingface-training/g5/v1.0.0/",  # noqa: E501
                     },
                 },
                 "local_gpu": {"properties": {"image_uri": "$gpu_ecr_uri_1"}},
@@ -937,15 +938,13 @@ def test_hub_content_document_from_json_obj():
                 "p3dn": {
                     "properties": {
                         "image_uri": "$gpu_ecr_uri_1",
-                        "gated_model_key_env_var_value": "huggingface-training/p3dn/v1.0.0/train-"
-                        "huggingface-llm-gemma-2b-instruct.tar.gz",
+                        "training_artifact_uri": "s3://jumpstart-cache-prod-us-west-2/huggingface-training/p3dn/v1.0.0/",  # noqa: E501
                     },
                 },
                 "p4d": {
                     "properties": {
                         "image_uri": "$gpu_ecr_uri_1",
-                        "gated_model_key_env_var_value": "huggingface-training/p4d/v1.0.0/train-"
-                        "huggingface-llm-gemma-2b-instruct.tar.gz",
+                        "training_artifact_uri": "s3://jumpstart-cache-prod-us-west-2/huggingface-training/p4d/v1.0.0/",  # noqa: E501
                     },
                 },
                 "p4de": {"properties": {"image_uri": "$gpu_ecr_uri_1"}},
@@ -979,3 +978,69 @@ def test_hub_content_document_from_json_obj():
     assert gemma_model_document.dynamic_container_deployment_supported is True
     assert gemma_model_document.training_model_package_artifact_uri is None
     assert gemma_model_document.dependencies == []
+
+    inference_config_rankings = {
+        "overall": JumpStartConfigRanking(
+            {"Description": "default", "Rankings": ["variant1"]}, is_hub_content=True
+        )
+    }
+
+    inference_config_components = {
+        "variant1": JumpStartConfigComponent(
+            "variant1",
+            {
+                "HostingEcrUri": "123456789012.ecr.us-west-2.amazon.com/repository",
+                "HostingArtifactUri": "s3://jumpstart-private-cache-prod-us-west-2/meta-textgeneration/meta-textgeneration-llama-2-7b/artifacts/variant1/v1.0.0/",  # noqa: E501
+                "HostingScriptUri": "s3://jumpstart-monarch-test-hub-bucket/monarch-curated-hub-1714579993.88695/curated_models/meta-textgeneration-llama-2-7b/4.0.0/source-directory-tarballs/meta/inference/textgeneration/v1.2.3/sourcedir.tar.gz",  # noqa: E501
+                "InferenceDependencies": [],
+                "InferenceEnvironmentVariables": [
+                    {
+                        "Name": "SAGEMAKER_PROGRAM",
+                        "Type": "text",
+                        "Default": "inference.py",
+                        "Scope": "container",
+                        "RequiredForModelClass": True,
+                    }
+                ],
+                "HostingAdditionalDataSources": {
+                    "speculative_decoding": [
+                        {
+                            "ArtifactVersion": 1,
+                            "ChannelName": "speculative_decoding_channel_1",
+                            "S3DataSource": {
+                                "CompressionType": "None",
+                                "S3DataType": "S3Prefix",
+                                "S3Uri": "s3://bucket/path/1",
+                            },
+                        },
+                        {
+                            "ArtifactVersion": 1,
+                            "ChannelName": "speculative_decoding_channel_2",
+                            "S3DataSource": {
+                                "CompressionType": "None",
+                                "S3DataType": "S3Prefix",
+                                "S3Uri": "s3://bucket/path/2",
+                            },
+                        },
+                    ]
+                },
+            },
+            is_hub_content=True,
+        )
+    }
+
+    inference_configs_dict = {
+        "variant1": JumpStartMetadataConfig(
+            "variant1",
+            json_obj["InferenceConfigs"]["variant1"],
+            json_obj,
+            inference_config_components,
+            is_hub_content=True,
+        )
+    }
+
+    inference_configs = JumpStartMetadataConfigs(inference_configs_dict, inference_config_rankings)
+
+    assert gemma_model_document.inference_config_rankings == inference_config_rankings
+    assert gemma_model_document.inference_config_components == inference_config_components
+    assert gemma_model_document.inference_configs == inference_configs

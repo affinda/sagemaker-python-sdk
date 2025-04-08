@@ -72,11 +72,11 @@ class RegisterModel(StepCollection):  # pragma: no cover
         response_types,
         inference_instances=None,
         transform_instances=None,
-        estimator: EstimatorBase = None,
+        estimator: Optional[EstimatorBase] = None,
         model_data=None,
         depends_on: Optional[List[Union[str, Step, StepCollection]]] = None,
-        repack_model_step_retry_policies: List[RetryPolicy] = None,
-        register_model_step_retry_policies: List[RetryPolicy] = None,
+        repack_model_step_retry_policies: Optional[List[RetryPolicy]] = None,
+        register_model_step_retry_policies: Optional[List[RetryPolicy]] = None,
         model_package_group_name=None,
         model_metrics=None,
         approval_status=None,
@@ -85,7 +85,7 @@ class RegisterModel(StepCollection):  # pragma: no cover
         display_name=None,
         description=None,
         tags=None,
-        model: Union[Model, PipelineModel] = None,
+        model: Optional[Union[Model, PipelineModel]] = None,
         drift_check_baselines=None,
         customer_metadata_properties=None,
         domain=None,
@@ -98,6 +98,7 @@ class RegisterModel(StepCollection):  # pragma: no cover
         skip_model_validation=None,
         source_uri=None,
         model_card=None,
+        model_life_cycle=None,
         **kwargs,
     ):
         """Construct steps `_RepackModelStep` and `_RegisterModelStep` based on the estimator.
@@ -158,6 +159,7 @@ class RegisterModel(StepCollection):  # pragma: no cover
             source_uri (str): The URI of the source for the model package (default: None).
             model_card (ModeCard or ModelPackageModelCard): document contains qualitative and
                 quantitative information about a model (default: None).
+            model_life_cycle (ModelLifeCycle): ModelLifeCycle object (default: None).
             **kwargs: additional arguments to `create_model`.
         """
         super().__init__(name=name, depends_on=depends_on)
@@ -297,6 +299,7 @@ class RegisterModel(StepCollection):  # pragma: no cover
             skip_model_validation=skip_model_validation,
             source_uri=source_uri,
             model_card=model_card,
+            model_life_cycle=model_life_cycle,
             **kwargs,
         )
         if not repack_model:
@@ -328,8 +331,8 @@ class EstimatorTransformer(StepCollection):
         instance_count,
         instance_type,
         transform_inputs,
-        description: str = None,
-        display_name: str = None,
+        description: Optional[str] = None,
+        display_name: Optional[str] = None,
         # model arguments
         image_uri=None,
         predictor_cls=None,
@@ -346,9 +349,9 @@ class EstimatorTransformer(StepCollection):
         volume_kms_key=None,
         depends_on: Optional[List[Union[str, Step, StepCollection]]] = None,
         # step retry policies
-        repack_model_step_retry_policies: List[RetryPolicy] = None,
-        model_step_retry_policies: List[RetryPolicy] = None,
-        transform_step_retry_policies: List[RetryPolicy] = None,
+        repack_model_step_retry_policies: Optional[List[RetryPolicy]] = None,
+        model_step_retry_policies: Optional[List[RetryPolicy]] = None,
+        transform_step_retry_policies: Optional[List[RetryPolicy]] = None,
         **kwargs,
     ):
         """Construct steps required for a Transformer step collection:

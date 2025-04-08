@@ -74,6 +74,7 @@ from tests.unit import (
     DEFAULT_S3_BUCKET_NAME,
     DEFAULT_S3_OBJECT_KEY_PREFIX_NAME,
 )
+from sagemaker.model_life_cycle import ModelLifeCycle
 
 MODEL_DATA = "s3://bucket/model.tar.gz"
 MODEL_IMAGE = "mi"
@@ -88,6 +89,7 @@ BUCKET_NAME = "mybucket"
 INSTANCE_COUNT = 1
 INSTANCE_TYPE = "c4.4xlarge"
 KEEP_ALIVE_PERIOD_IN_SECONDS = 1800
+TRAINING_PLAN = "arn:aws:sagemaker:us-west-2:336:training-plan/test_training_plan"
 ACCELERATOR_TYPE = "ml.eia.medium"
 ROLE = "DummyRole"
 IMAGE_URI = "fakeimage"
@@ -858,6 +860,23 @@ def test_framework_with_keep_alive_period(sagemaker_session):
     sagemaker_session.train.assert_called_once()
     _, args = sagemaker_session.train.call_args
     assert args["resource_config"]["KeepAlivePeriodInSeconds"] == KEEP_ALIVE_PERIOD_IN_SECONDS
+
+
+def test_framework_with_training_plan(sagemaker_session):
+    f = DummyFramework(
+        entry_point=SCRIPT_PATH,
+        role=ROLE,
+        sagemaker_session=sagemaker_session,
+        instance_groups=[
+            InstanceGroup("group1", "ml.c4.xlarge", 1),
+            InstanceGroup("group2", "ml.m4.xlarge", 2),
+        ],
+        training_plan=TRAINING_PLAN,
+    )
+    f.fit("s3://mydata")
+    sagemaker_session.train.assert_called_once()
+    _, args = sagemaker_session.train.call_args
+    assert args["resource_config"]["TrainingPlanArn"] == TRAINING_PLAN
 
 
 def test_framework_with_both_training_repository_config(sagemaker_session):
@@ -4345,6 +4364,12 @@ def test_register_default_image(sagemaker_session):
         status=ModelCardStatusEnum.DRAFT,
         model_overview=model_overview,
     )
+    update_model_life_cycle = ModelLifeCycle(
+        stage="Development",
+        stage_status="In-Progress",
+        stage_description="Sending for Staging Verification",
+    )
+    update_model_life_cycle_req = update_model_life_cycle._to_request_dict()
 
     estimator.register(
         content_types=content_types,
@@ -4359,12 +4384,19 @@ def test_register_default_image(sagemaker_session):
         nearest_model_name=nearest_model_name,
         data_input_configuration=data_input_config,
         model_card=model_card,
+        model_life_cycle=update_model_life_cycle_req,
     )
     sagemaker_session.create_model.assert_not_called()
     exp_model_card = {
         "ModelCardStatus": "Draft",
         "ModelCardContent": '{"model_overview": {"model_creator": "TestCreator", "model_artifact": []}}',
     }
+    exp_model_life_cycle = {
+        "Stage": "Development",
+        "StageStatus": "In-Progress",
+        "StageDescription": "Sending for Staging Verification",
+    }
+
     expected_create_model_package_request = {
         "containers": [{"Image": estimator.image_uri, "ModelDataUrl": estimator.model_data}],
         "content_types": content_types,
@@ -4375,6 +4407,7 @@ def test_register_default_image(sagemaker_session):
         "marketplace_cert": False,
         "sample_payload_url": sample_payload_url,
         "task": task,
+        "model_life_cycle": exp_model_life_cycle,
         "model_card": exp_model_card,
     }
     sagemaker_session.create_model_package_from_containers.assert_called_with(
@@ -4402,7 +4435,7 @@ def test_register_default_image_without_instance_type_args(sagemaker_session):
     framework = "TENSORFLOW"
     framework_version = "2.9"
     nearest_model_name = "resnet50"
-
+    model_card = {"ModelCardStatus": ModelCardStatusEnum.DRAFT, "ModelCardContent": "{}"}
     estimator.register(
         content_types=content_types,
         response_types=response_types,
@@ -4425,6 +4458,7 @@ def test_register_default_image_without_instance_type_args(sagemaker_session):
         "marketplace_cert": False,
         "sample_payload_url": sample_payload_url,
         "task": task,
+        "model_card": model_card,
     }
     sagemaker_session.create_model_package_from_containers.assert_called_with(
         **expected_create_model_package_request
@@ -4454,6 +4488,7 @@ def test_register_inference_image(sagemaker_session):
     framework = "TENSORFLOW"
     framework_version = "2.9"
     nearest_model_name = "resnet50"
+    model_card = {"ModelCardStatus": ModelCardStatusEnum.DRAFT, "ModelCardContent": "{}"}
 
     estimator.register(
         content_types=content_types,
@@ -4480,6 +4515,7 @@ def test_register_inference_image(sagemaker_session):
         "marketplace_cert": False,
         "sample_payload_url": sample_payload_url,
         "task": task,
+        "model_card": model_card,
     }
     sagemaker_session.create_model_package_from_containers.assert_called_with(
         **expected_create_model_package_request
@@ -5919,3 +5955,38 @@ def test_estimator_get_app_url_fail(sagemaker_session):
         f.get_app_url("fake-app")
 
     assert "does not support URL retrieval." in str(error)
+
+
+@patch("sagemaker.mlflow.forward_sagemaker_metrics.log_sagemaker_job_to_mlflow")
+def test_forward_sagemaker_metrics(mock_log_to_mlflow, sagemaker_session):
+    f = DummyFramework(
+        entry_point=SCRIPT_PATH,
+        role=ROLE,
+        enable_network_isolation=True,
+        sagemaker_session=sagemaker_session,
+        instance_groups=[
+            InstanceGroup("group1", "ml.c4.xlarge", 1),
+        ],
+    )
+
+    # Set environment variables restores to state after the test.
+    with patch.dict(os.environ, {"MLFLOW_TRACKING_URI": "test_uri"}):
+        f.fit("s3://mydata")
+
+    mock_log_to_mlflow.assert_called_once()
+
+
+@patch("sagemaker.mlflow.forward_sagemaker_metrics.log_sagemaker_job_to_mlflow")
+def test_no_forward_sagemaker_metrics(mock_log_to_mlflow, sagemaker_session):
+    f = DummyFramework(
+        entry_point=SCRIPT_PATH,
+        role=ROLE,
+        sagemaker_session=sagemaker_session,
+        enable_network_isolation=False,
+        instance_groups=[
+            InstanceGroup("group1", "ml.c4.xlarge", 1),
+        ],
+    )
+    with patch.dict(os.environ, {"MLFLOW_TRACKING_URI": "test_uri"}):
+        f.fit("s3://mydata")
+    mock_log_to_mlflow.assert_not_called()

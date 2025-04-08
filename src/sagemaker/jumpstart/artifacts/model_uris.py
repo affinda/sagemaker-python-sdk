@@ -20,6 +20,7 @@ from sagemaker.jumpstart.constants import (
     ENV_VARIABLE_JUMPSTART_MODEL_ARTIFACT_BUCKET_OVERRIDE,
 )
 from sagemaker.jumpstart.enums import (
+    JumpStartModelType,
     JumpStartScriptScope,
 )
 from sagemaker.jumpstart.utils import (
@@ -28,6 +29,7 @@ from sagemaker.jumpstart.utils import (
     get_region_fallback,
     verify_model_region_and_return_specs,
 )
+from sagemaker.s3_utils import is_s3_url
 from sagemaker.session import Session
 from sagemaker.jumpstart.types import JumpStartModelSpecs
 
@@ -73,7 +75,7 @@ def _retrieve_hosting_artifact_key(model_specs: JumpStartModelSpecs, instance_ty
 def _retrieve_training_artifact_key(model_specs: JumpStartModelSpecs, instance_type: str) -> str:
     """Returns instance specific training artifact key or default one as fallback."""
     instance_specific_training_artifact_key: Optional[str] = (
-        model_specs.training_instance_type_variants.get_instance_specific_artifact_key(
+        model_specs.training_instance_type_variants.get_instance_specific_training_artifact_key(
             instance_type=instance_type
         )
         if instance_type
@@ -96,6 +98,8 @@ def _retrieve_model_uri(
     tolerate_vulnerable_model: bool = False,
     tolerate_deprecated_model: bool = False,
     sagemaker_session: Session = DEFAULT_JUMPSTART_SAGEMAKER_SESSION,
+    config_name: Optional[str] = None,
+    model_type: JumpStartModelType = JumpStartModelType.OPEN_WEIGHTS,
 ):
     """Retrieves the model artifact S3 URI for the model matching the given arguments.
 
@@ -123,6 +127,10 @@ def _retrieve_model_uri(
             object, used for SageMaker interactions. If not
             specified, one is created using the default AWS configuration
             chain. (Default: sagemaker.jumpstart.constants.DEFAULT_JUMPSTART_SAGEMAKER_SESSION).
+        config_name (Optional[str]): Name of the JumpStart Model config to apply. (Default: None).
+        model_type (JumpStartModelType): The type of the model, can be open weights model
+            or proprietary model. (Default: JumpStartModelType.OPEN_WEIGHTS).
+
     Returns:
         str: the model artifact S3 URI for the corresponding model.
 
@@ -145,6 +153,8 @@ def _retrieve_model_uri(
         tolerate_vulnerable_model=tolerate_vulnerable_model,
         tolerate_deprecated_model=tolerate_deprecated_model,
         sagemaker_session=sagemaker_session,
+        config_name=config_name,
+        model_type=model_type,
     )
 
     model_artifact_key: str
@@ -176,8 +186,8 @@ def _retrieve_model_uri(
         os.environ.get(ENV_VARIABLE_JUMPSTART_MODEL_ARTIFACT_BUCKET_OVERRIDE)
         or default_jumpstart_bucket
     )
-
-    model_s3_uri = f"s3://{bucket}/{model_artifact_key}"
+    if not is_s3_url(model_artifact_key):
+        model_s3_uri = f"s3://{bucket}/{model_artifact_key}"
 
     return model_s3_uri
 
@@ -190,6 +200,8 @@ def _model_supports_training_model_uri(
     tolerate_vulnerable_model: bool = False,
     tolerate_deprecated_model: bool = False,
     sagemaker_session: Session = DEFAULT_JUMPSTART_SAGEMAKER_SESSION,
+    config_name: Optional[str] = None,
+    model_type: JumpStartModelType = JumpStartModelType.OPEN_WEIGHTS,
 ) -> bool:
     """Returns True if the model supports training with model uri field.
 
@@ -213,6 +225,9 @@ def _model_supports_training_model_uri(
             object, used for SageMaker interactions. If not
             specified, one is created using the default AWS configuration
             chain. (Default: sagemaker.jumpstart.constants.DEFAULT_JUMPSTART_SAGEMAKER_SESSION).
+        config_name (Optional[str]): Name of the JumpStart Model config to apply. (Default: None).
+        model_type (JumpStartModelType): The type of the model, can be open weights model
+            or proprietary model. (Default: JumpStartModelType.OPEN_WEIGHTS).
     Returns:
         bool: the support status for model uri with training.
     """
@@ -230,6 +245,8 @@ def _model_supports_training_model_uri(
         tolerate_vulnerable_model=tolerate_vulnerable_model,
         tolerate_deprecated_model=tolerate_deprecated_model,
         sagemaker_session=sagemaker_session,
+        config_name=config_name,
+        model_type=model_type,
     )
 
     return model_specs.use_training_model_artifact()

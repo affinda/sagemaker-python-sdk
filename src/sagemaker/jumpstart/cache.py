@@ -150,7 +150,8 @@ class JumpStartModelsCache:
             if s3_client_config
             else boto3.client("s3", region_name=self._region)
         )
-        self._sagemaker_session = sagemaker_session
+        # Fallback in case a caller overrides sagemaker_session to None
+        self._sagemaker_session = sagemaker_session or DEFAULT_JUMPSTART_SAGEMAKER_SESSION
 
     def set_region(self, region: str) -> None:
         """Set region for cache. Clears cache after new region is set."""
@@ -262,7 +263,7 @@ class JumpStartModelsCache:
             return JumpStartVersionedModelId(model_id, sm_compatible_model_version)
 
         versions_incompatible_with_sagemaker = [
-            Version(header.version)
+            header.version
             for header in manifest.values()  # type: ignore
             if header.model_id == model_id
         ]
@@ -293,7 +294,8 @@ class JumpStartModelsCache:
             raise KeyError(error_msg)
 
         error_msg = f"Unable to find model manifest for '{model_id}' with version '{version}'. "
-        error_msg += f"Visit {MODEL_ID_LIST_WEB_URL} for updated list of models. "
+        error_msg += "Specify a different model ID or try a different AWS Region. "
+        error_msg += f"For a list of available models, see {MODEL_ID_LIST_WEB_URL}. "
 
         other_model_id_version = None
         if model_type == JumpStartModelType.OPEN_WEIGHTS:
@@ -462,19 +464,24 @@ class JumpStartModelsCache:
             HubContentType.MODEL_REFERENCE,
         }:
 
-            hub_arn_extracted_info = hub_utils.get_info_from_hub_resource_arn(id_info)
+            hub_resource_arn_extracted_info = hub_utils.get_info_from_hub_resource_arn(id_info)
+            hub_arn = hub_utils.construct_hub_arn_from_name(
+                hub_name=hub_resource_arn_extracted_info.hub_name,
+                region=hub_resource_arn_extracted_info.region,
+                account_id=hub_resource_arn_extracted_info.account_id,
+            )
 
             model_version: str = hub_utils.get_hub_model_version(
-                hub_model_name=hub_arn_extracted_info.hub_content_name,
+                hub_model_name=hub_resource_arn_extracted_info.hub_content_name,
                 hub_model_type=data_type.value,
-                hub_name=hub_arn_extracted_info.hub_name,
+                hub_name=hub_arn,
                 sagemaker_session=self._sagemaker_session,
-                hub_model_version=hub_arn_extracted_info.hub_content_version,
+                hub_model_version=hub_resource_arn_extracted_info.hub_content_version,
             )
 
             hub_model_description: Dict[str, Any] = self._sagemaker_session.describe_hub_content(
-                hub_name=hub_arn_extracted_info.hub_name,
-                hub_content_name=hub_arn_extracted_info.hub_content_name,
+                hub_name=hub_arn,
+                hub_content_name=hub_resource_arn_extracted_info.hub_content_name,
                 hub_content_version=model_version,
                 hub_content_type=data_type.value,
             )
@@ -534,9 +541,7 @@ class JumpStartModelsCache:
         """
 
         if version_str == "*":
-            if len(available_versions) == 0:
-                return None
-            return str(max(available_versions))
+            return utils.get_latest_version(available_versions)
 
         if model_type == JumpStartModelType.PROPRIETARY:
             if "*" in version_str:
@@ -546,6 +551,12 @@ class JumpStartModelsCache:
                     )
                 )
             return version_str if version_str in available_versions else None
+
+        if version_str[-1] == "*":
+            # major or minor version is pinned, e.g 1.* or 1.0.*
+            return utils.get_latest_version(
+                [version for version in available_versions if version.startswith(version_str[:-1])]
+            )
 
         try:
             spec = SpecifierSet(f"=={version_str}")

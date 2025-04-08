@@ -25,13 +25,15 @@ from sagemaker.serve.utils.local_hardware import (
     _get_nb_instance,
 )
 from sagemaker.serve.model_server.tgi.prepare import _create_dir_structure
-from sagemaker.serve.utils.predictors import TeiLocalModePredictor
+from sagemaker.serve.utils.optimize_utils import _is_optimized
+from sagemaker.serve.utils.predictors import InProcessModePredictor, TeiLocalModePredictor
 from sagemaker.serve.utils.types import ModelServer
 from sagemaker.serve.mode.function_pointers import Mode
 from sagemaker.serve.utils.telemetry_logger import _capture_telemetry
 from sagemaker.base_predictor import PredictorBase
 
 logger = logging.getLogger(__name__)
+LOCAL_MODES = [Mode.LOCAL_CONTAINER, Mode.IN_PROCESS]
 
 _CODE_FOLDER = "code"
 
@@ -63,11 +65,11 @@ class TEI(ABC):
         self.nb_instance_type = None
         self.ram_usage_model_load = None
         self.secret_key = None
-        self.jumpstart = None
         self.role_arn = None
+        self.name = None
 
     @abstractmethod
-    def _prepare_for_mode(self):
+    def _prepare_for_mode(self, *args, **kwargs):
         """Placeholder docstring"""
 
     @abstractmethod
@@ -105,6 +107,7 @@ class TEI(ABC):
             env=self.env_vars,
             role=self.role_arn,
             sagemaker_session=self.sagemaker_session,
+            name=self.name,
         )
 
         logger.info("Detected %s. Proceeding with the the deployment.", self.image_uri)
@@ -139,6 +142,17 @@ class TEI(ABC):
 
         serializer = self.schema_builder.input_serializer
         deserializer = self.schema_builder._output_deserializer
+        if self.mode == Mode.IN_PROCESS:
+            self._prepare_for_mode()
+            predictor = InProcessModePredictor(
+                self.modes[str(Mode.IN_PROCESS)], serializer, deserializer
+            )
+
+            self.modes[str(Mode.IN_PROCESS)].create_server(
+                predictor,
+            )
+            return predictor
+
         if self.mode == Mode.LOCAL_CONTAINER:
             timeout = kwargs.get("model_data_download_timeout")
 
@@ -163,18 +177,25 @@ class TEI(ABC):
             self.pysdk_model.role = kwargs.get("role")
             del kwargs["role"]
 
-        # set model_data to uncompressed s3 dict
-        self.pysdk_model.model_data, env_vars = self._prepare_for_mode()
-        self.env_vars.update(env_vars)
-        self.pysdk_model.env.update(self.env_vars)
+        if not _is_optimized(self.pysdk_model):
+            env_vars = {}
+            if str(Mode.LOCAL_CONTAINER) in self.modes:
+                # upload model artifacts to S3 if LOCAL_CONTAINER -> SAGEMAKER_ENDPOINT
+                self.pysdk_model.model_data, env_vars = self._prepare_for_mode(
+                    model_path=self.model_path, should_upload_artifacts=True
+                )
+            else:
+                _, env_vars = self._prepare_for_mode()
+
+            self.env_vars.update(env_vars)
+            self.pysdk_model.env.update(self.env_vars)
 
         # if the weights have been cached via local container mode -> set to offline
         if str(Mode.LOCAL_CONTAINER) in self.modes:
-            self.pysdk_model.env.update({"TRANSFORMERS_OFFLINE": "1"})
+            self.pysdk_model.env.update({"HF_HUB_OFFLINE": "1"})
         else:
             # if has not been built for local container we must use cache
             # that hosting has write access to.
-            self.pysdk_model.env["TRANSFORMERS_CACHE"] = "/tmp"
             self.pysdk_model.env["HF_HOME"] = "/tmp"
             self.pysdk_model.env["HUGGINGFACE_HUB_CACHE"] = "/tmp"
 
@@ -193,6 +214,9 @@ class TEI(ABC):
 
         predictor = self._original_deploy(*args, **kwargs)
 
+        if "HF_HUB_OFFLINE" in self.pysdk_model.env:
+            self.pysdk_model.env.update({"HF_HUB_OFFLINE": "0"})
+
         predictor.serializer = serializer
         predictor.deserializer = deserializer
         return predictor
@@ -210,7 +234,7 @@ class TEI(ABC):
 
         self.pysdk_model = self._create_tei_model()
 
-        if self.mode == Mode.LOCAL_CONTAINER:
+        if self.mode in LOCAL_MODES:
             self._prepare_for_mode()
 
         return self.pysdk_model
@@ -222,4 +246,8 @@ class TEI(ABC):
         self._set_to_tei()
 
         self.pysdk_model = self._build_for_hf_tei()
+        if self.role_arn:
+            self.pysdk_model.role = self.role_arn
+        if self.sagemaker_session:
+            self.pysdk_model.sagemaker_session = self.sagemaker_session
         return self.pysdk_model

@@ -46,8 +46,8 @@ DOCKERFILE_TEMPLATE_WITH_CONDA = (
     'SHELL ["/bin/bash", "-c"]\n'
     "RUN apt-get update -y \
         && apt-get install -y unzip curl\n\n"
-    "RUN curl -L -O 'https://github.com/conda-forge/miniforge/releases/latest/download/Mambaforge-Linux-x86_64.sh' \
-        && bash Mambaforge-Linux-x86_64.sh -b -p '/opt/conda' \
+    "RUN curl -L -O 'https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh' \
+        && bash Miniforge3-Linux-x86_64.sh -b -p '/opt/conda' \
         && /opt/conda/bin/conda init bash\n\n"
     "ENV PATH $PATH:/opt/conda/bin\n"
     "RUN mamba create -n integ_test_env python={py_version} -y \
@@ -86,8 +86,8 @@ AUTO_CAPTURE_CLIENT_DOCKER_TEMPLATE = (
     'SHELL ["/bin/bash", "-c"]\n'
     "RUN apt-get update -y \
         && apt-get install -y unzip curl\n\n"
-    "RUN curl -L -O 'https://github.com/conda-forge/miniforge/releases/latest/download/Mambaforge-Linux-x86_64.sh' \
-        && bash Mambaforge-Linux-x86_64.sh -b -p '/opt/conda' \
+    "RUN curl -L -O 'https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh' \
+        && bash Miniforge3-Miniforge3-Linux-x86_64.sh -b -p '/opt/conda' \
         && /opt/conda/bin/conda init bash\n\n"
     "ENV PATH $PATH:/opt/conda/bin\n"
     "COPY {source_archive} ./\n"
@@ -280,7 +280,7 @@ def _generate_sagemaker_sdk_tar(destination_folder):
     """
     Run setup.py sdist to generate the PySDK tar file
     """
-    command = f"python3 setup.py egg_info --egg-base {destination_folder} sdist -d {destination_folder} -k --verbose"
+    command = f"python -m build --sdist -o {destination_folder}"
     print(f"Running command: {command}")
     result = subprocess.run(command, shell=True, check=True, capture_output=True)
     if result.returncode != 0:
